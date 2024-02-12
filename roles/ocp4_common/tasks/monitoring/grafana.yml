@@ -1,0 +1,81 @@
+- name: "Monitoring :: Cria o Namespace"
+  kubernetes.core.k8s:
+    name: "{{ grafana_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: "Monitoring :: Deploy OperatorGroup"
+  kubernetes.core.k8s:
+    namespace: "{{ grafana_namespace }}"
+    state: present
+    definition: "{{ lookup('template', 'install-operator-group.j2') | from_yaml }}"
+    validate:
+      fail_on_error: yes
+    wait: yes
+    wait_sleep: 10
+    wait_timeout: 60
+  vars:
+    operator_namespace: "{{ grafana_namespace }}"
+  when: true
+
+- name: "Monitoring :: Deploy Grafana Operator"
+  ansible.builtin.include_tasks: operator.yml
+  vars:
+    operator_name: "{{ grafana_name }}"
+    operator_namespace: "{{ grafana_namespace }}"
+    operator_version: "{{ grafana_version }}"
+    operator_install_plan_approval: "{{ grafana_install_plan_approval }}"
+    operator_source: "{{ grafana_source }}"
+
+- name: "Monitoring :: Deploy Grafana"
+  kubernetes.core.k8s:
+    namespace: "{{ grafana_namespace }}"
+    name: "{{ grafana_name }}"
+    state: present
+    definition: "{{ lookup('file', 'monitoring/grafana.yml') | from_yaml }}"
+
+- name: "Monitoring :: Wait Grafana instance"
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: grafana-deployment
+    namespace: "{{ grafana_namespace }}"
+    wait: yes
+    wait_sleep: 20
+    wait_timeout: 180
+    wait_condition:
+      type: Available
+      status: 'True'
+      reason: MinimumReplicasAvailable
+  register: grafana_deployment_info
+
+- name: "Monitoring :: Permissão de monitoring view "
+  kubernetes.core.k8s:
+    name: cluster-monitoring-view
+    namespace: "{{ grafana_namespace }}"
+    api_version: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    state: present
+    definition:
+      subjects:
+        - kind: ServiceAccount
+          name: grafana-serviceaccount
+          namespace: "{{ grafana_namespace }}"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: cluster-monitoring-view
+
+- name: "Monitoring :: Criar token para SA do Grafana"
+  shell: |
+    oc create token grafana-serviceaccount --duration=8760h -n {{ grafana_namespace }}
+  register: grafana_token_result
+
+- name: "Monitoring :: Deploy Grafana Datasource"
+  kubernetes.core.k8s:
+    namespace: "{{ grafana_namespace }}"
+    state: present
+    definition: "{{ lookup('template', 'grafana-datasource.yml.j2') | from_yaml }}"
+  vars:
+    grafana_token: "{{ grafana_token_result.stdout }}"

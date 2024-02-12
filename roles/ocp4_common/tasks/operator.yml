@@ -1,0 +1,79 @@
+- name: "Common :: Deploy OperatorGroup"
+  kubernetes.core.k8s:
+    namespace: "{{ operator_namespace }}"
+    state: present
+    definition: "{{ lookup('template', 'install-operator-group.j2') | from_yaml }}"
+    validate:
+      fail_on_error: yes
+    wait: yes
+    wait_sleep: 10
+    wait_timeout: 60
+  when: true
+
+- name: "Common :: Deploy Subscription"
+  kubernetes.core.k8s:
+    namespace: "{{ operator_namespace }}"
+    state: present
+    definition: "{{ lookup('template', 'install-operator-subscription.j2') | from_yaml }}"
+    validate:
+      fail_on_error: yes
+    wait: yes
+    wait_sleep: 10
+    wait_timeout: 60
+
+- name: "Common :: Pause waiting for install plan"
+  ansible.builtin.pause:
+    seconds: 10
+
+- name: "Common :: Wait Subscription"
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: Subscription
+    name: "{{ operator_name }}"
+    namespace: "{{ operator_namespace }}"
+    wait: yes
+    wait_sleep: 20
+    wait_timeout: 360
+    wait_condition:
+      type: CatalogSourcesUnhealthy
+      status: 'False'
+      reason: AllCatalogSourcesHealthy
+  register: operator_info
+
+- name: "Common :: Approve install plan approval"
+  kubernetes.core.k8s_json_patch:
+    api_version: operators.coreos.com/v1alpha1
+    kind: InstallPlan
+    namespace: "{{ operator_namespace }}"
+    name: "{{ operator_info.resources[0].status.installplan.name }}"
+    patch:
+      - op: replace
+        path: /spec/approved
+        value: true
+  when: operator_install_plan_approval == 'Manual'
+
+- name: "Common :: Wait Operator"
+  kubernetes.core.k8s_info:
+    api_version: operators.coreos.com/v1alpha1
+    kind: ClusterServiceVersion
+    name: "{{ operator_info.resources[0].status.currentCSV }}"
+    namespace: "{{ operator_namespace }}"
+    wait: yes
+    wait_sleep: 20
+    wait_timeout: 180
+  register: csv_info
+
+- name: "Common :: Wait Operator Deployment"
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ csv_info.resources[0].spec.install.spec.deployments[0].name }}"
+    namespace: "{{ operator_namespace }}"
+    wait: yes
+    wait_sleep: 20
+    wait_timeout: 180
+    wait_condition:
+      type: Available
+      status: 'True'
+      reason: MinimumReplicasAvailable
+  register: operator_deployment_info

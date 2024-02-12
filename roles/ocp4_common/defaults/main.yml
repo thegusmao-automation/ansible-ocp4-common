@@ -1,0 +1,7 @@
+---
+# defaults file for ocp4_common
+grafana_name: "grafana-operator"
+grafana_namespace: "monitoring"
+grafana_version: "v4"
+grafana_install_plan_approval: "Automatic" 
+grafana_source: "community-operators"

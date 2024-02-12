@@ -1,0 +1,13 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  labels:
+    operators.coreos.com/{{ operator_version }}.{{ operator_namespace }}: ""
+  name: "{{ operator_name }}"
+  namespace: "{{ operator_namespace }}"
+spec:
+  channel: "{{ operator_version }}"
+  installPlanApproval: "{{ operator_install_plan_approval }}"
+  name: "{{ operator_name }}"
+  source: {{ operator_source | default( 'redhat-operators' ) }}
+  sourceNamespace: openshift-marketplace

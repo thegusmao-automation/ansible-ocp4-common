@@ -1,0 +1,35 @@
+- name: "Monitoring :: Verifica user workload monitoring"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: ConfigMap
+    name: cluster-monitoring-config
+    namespace: openshift-monitoring
+  register: user_workload_monitoring_info
+
+# - name: "Monitoring :: Debug user workload return"
+#   ansible.builtin.debug:
+#     var: user_workload_monitoring_info
+
+- name: "Monitoring :: Habilita o cluster Monitoring"
+  kubernetes.core.k8s:
+    name: cluster-monitoring-config
+    namespace: openshift-monitoring
+    api_version: v1
+    kind: ConfigMap
+    state: present
+    merge_type: strategic-merge
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      data:
+        config.yaml: |
+          enableUserWorkload: true
+  register: cluster_monitoring_result
+  when: 
+    - user_workload_monitoring_info is defined 
+    - user_workload_monitoring_info.resources is defined
+    - user_workload_monitoring_info.resources | length > 0
+
+- name: "Monitoring :: Deploy Grafana"
+  ansible.builtin.include_tasks: monitoring/grafana.yml
+  when: monitoring_install_include_grafana | default(false)
